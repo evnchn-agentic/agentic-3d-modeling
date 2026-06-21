@@ -1,0 +1,93 @@
+---
+name: agentic-3d-modeling
+description: Use when building a parametric, 3D-printable model from a natural-language or photo spec — enclosures, caps, cradles, stands, brackets — with build123d / OpenCascade, where the result must be numerically verified (fit, clearance, retention, printability) rather than eyeballed. Also when reverse-engineering a part's geometry from photos without calipers, or deciding why an OCC boolean/offset/fillet silently failed. Triggers: build123d, CAD, STEP/STL export, snap-fit, support-free, FDM overhang, homography from photo.
+---
+
+# Agentic 3D Modeling
+
+## Overview
+
+Produce parametric, 3D-printable models from a spec, **verified by measurement, not by looking**. The core discipline is the verify loop: every iteration renders to PNG **and backs the claim with a number**. A render that "looks solid" proves nothing — a hollow with no occlusion looks identical. Distilled from working builds: `~/cap-model`, `~/fan-holder`, `~/connector-cap`, `~/robot-power-box`.
+
+## Toolchain — reuse a venv, don't rebuild (and don't hardcode the path)
+
+build123d 0.10 (Python + OpenCascade via `cadquery-ocp`) gives real fillets, true shell, and STEP (editable B-rep) **and** STL (mesh) from one source; plus `trimesh` (section + proximity), `matplotlib` (Agg, headless), numpy.
+
+**Probe for an existing venv** — the path rotates (a disk-cleanup sweep deleted `~/cap-model/venv` once; don't trust a memorized location):
+```bash
+for v in ~/oak-d-iot-75-cradle/venv ~/*/venv; do
+  "$v/bin/python" -c "import build123d,trimesh" 2>/dev/null && echo "USE $v" && break; done
+```
+(The seed candidate above is illustrative — the `~/*/venv` glob is what actually finds it; don't treat any single path as fixed.) If none found: build on a **Python 3.12** interpreter (`cadquery-ocp` has **no wheel for bleeding-edge CPython** — no cp314). On this Mac that's `/opt/homebrew/bin/python3.12`; on the Linux homelab nodes resolve `python3.12`/`which python3.12` instead (the homebrew path is Apple-Silicon-only). Never `--break-system-packages`. Helpers pulled on ImportError: `rtree` (proximity), `networkx` (mesh section).
+
+**Exports are FREE FUNCTIONS, not methods:** `export_stl(shape, path, tolerance=.01, angular_tolerance=.1)`, `export_step(shape, path)`. (`shape.export_stl` → AttributeError.) **Units strictly mm**; resolve mixed cm/mm in the spec up front.
+
+## The verify loop (the core — render → section → MEASURE)
+
+Each iteration: render PNG, `Read` it, **and** attach a number.
+
+- **Section, not 3D plot.** matplotlib 3D (`Poly3DCollection`) has no occlusion. Verify with a true **2D cross-section** — B-rep edges, or `trimesh.section(plane_origin, plane_normal)` on the exported mesh — plus numeric probes.
+- **`faces().filter_by(Plane.XZ)` misclassifies cut faces on lofted/tilted solids** (empty section) → fall back to `trimesh.section` on the mesh.
+- **Make every constraint a falsifiable metric:**
+  - *fit/clearance (two bodies):* `trimesh.proximity.signed_distance` / `closest_point`; report min/max/mean/σ; want 0 penetration.
+  - *wall thickness (one hollow body):* `signed_distance` against a watertight mesh of itself doesn't directly give it. Two ways: (a) take the `trimesh.section` at the cut and measure outer-edge → inner-edge distance numerically on the 2D section polygon; or (b) sample points on the outer surface (`mesh.sample(n)` filtered to outward-normal faces) and ray-cast inward (`mesh.ray.intersects_location`) — the first hit distance is the local wall. Report min/mean to confirm the intended thickness.
+  - *retention:* the cradle math below.
+  - *printability:* the overhang math below.
+- **Assert the volume drop after every boolean cut** — the single highest-value check (catches wrong-direction extrudes, missed booleans).
+- Render gravity-aligned views (y=0 side cut + ⟂-axis cross-section, gravity up), not raw point clouds.
+- After any parameter change, **re-grep artifacts** for hardcoded old values (plot titles, comments) — a stale caption on correct geometry is a misleading deliverable.
+
+## Geometry gotchas (each hit and solved)
+
+- **Winding sets extrude direction.** `extrude(sketch, +h)` follows the face normal; a **clockwise**-wound `Polygon` normals **−Z** → extrudes *downward*, and a CW cut profile silently **misses** the boolean (symptom: volume barely drops). `Rectangle`/`Trapezoid` helpers are CCW (safe); hand-built `Polygon([...])` is the trap — list points **CCW**. Assert the volume drop.
+- **OCC 3D offset dies on a `scale()`d sphere** (`Standard_Failure: BRep_API: command not done`, degenerate pole/seam). Build domes as a **loft of stacked ellipse sections** instead — also yields a vertical equator tangent that blends into a straight wall.
+- **Uniform-wall open cap:** `offset(solid,+t) − solid`, then **`split` flat at the rim plane** → sharp planar edges → fillet **inner only**. Avoid `Kind.ARC`/`Kind.INTERSECTION` on curved offsets when an outer edge must stay sharp.
+- **Fillet radius ≥ wall thickness consumes the whole wall** — cap it (e.g. 0.5 mm on a 1 mm wall) and flag the judgment call.
+- **Don't blanket-mirror features.** A Y-mirror of an X-symmetric profile looks like a 180° rotation — flips chamfer/keying. Mirror only features referenced to the *moved* edge; edge-referenced features ("5 mm from wide edge") are flip-invariant and must NOT be mirrored (mirroring = regression).
+- **Vertical truncation cut:** to amputate a region of a tilted part cleanly, subtract a world-z half-space box, not the irregular feature boundary.
+
+## Anchor first — solve load-bearing geometry before details
+
+For "what angle does it rest at": find the natural tilt by **minimizing CG height vs lean angle** — rotate the mesh through θ, compute `cg_z − min_vertex_z` (CG height after dropping to ground), take the local min. Don't hand-derive contacts. **Then ENFORCE that pose** by building the seat at it — the part fixes the angle, robust to unknown CG/weight (weight only affects the stability margin).
+
+## Cradle retention math (snap-capture a cylinder)
+
+A trough retains a cylinder only if **opening width < cylinder diameter**:
+`opening = 2·(r + clearance)·cos(wrap/2 − 90)` must be `< 2r`.
+- **`clearance`** = the print gap you cut the trough oversize by, in mm, **positive** (typical FDM 0.2–0.4 mm so the rod actually inserts; 0 only for a theoretical check). A bigger clearance *widens* the opening → harder to retain, so size wrap against the clearance you'll actually print.
+- **Angle convention: degrees.** The `90` is degrees and `wrap` is in degrees. In code, `math.cos` takes **radians** — convert: `math.cos(math.radians(wrap/2 - 90))`. A literal `math.cos(wrap/2 - 90)` is silently wrong.
+- Needs **wrap > 180°** by a real margin. 190° ≈ 99.6% of dia = **no retention** (lifts straight out). **~220° ≈ 1 mm constriction, grips ~67% of height** = real snap-fit (press in with slight wall flex).
+- "Grip >50% of height" = lips past the equator; height gripped `= r·(1 + sin(wrap/2 − 90))`.
+
+## Printability metric (FDM, support-free)
+
+Per face: if it faces **down** (`normal_z < 0`) AND is above the bed, surface incline from horizontal `= arccos(|normal_z|)`; **needs support if < ~45°**. **CRITICAL: exclude bed-contact faces (`centroid_z < ~0.6 mm`)** or the flat bottom false-flags as a 0°-overhang ceiling (it's the first layer). Design tricks: print top-plate-down for caps; a **0.2 mm membrane** closing a counterbore floor lets the printer *bridge* a flat instead of an overhang ledge (drill through after).
+
+## Reverse-engineer geometry from photos (no calipers)
+
+- **Credit card = free scale ruler.** ISO/IEC 7810 ID-1 = 85.60×53.98 mm; threshold its color + `scipy.ndimage.label` for px→mm (check X-vs-Y anisotropy = perspective).
+- **Known hole pattern = free homography anchor.** A Pi-stackable board uses **58×49 mm, Ø2.7 (M2.5), 3.5 mm inset**; those 4 holes give an exact 4-point DLT homography (numpy) → rectify to mm, read outline + connector X-positions. **Classical CV (scipy blobs + DLT) beats YOLO** here — deterministic, sub-mm, no training set.
+- **What a photo CANNOT give:** connector **heights** above the PCB → look up by part type (KF301 ~10, DC barrel ~11, JST XH ~6 / PH ~5, Type-C ~3.2, 2.54 header ~8.5 mm) or caliper on arrival. This is why a **SAFE variant** (walls open to rim, height-tolerant) is worth carrying alongside the tight BEAUTIFUL one.
+- **1:1 PDF for physical overlay:** `figsize=(w_mm/25.4, h_mm/25.4)`, `ax=fig.add_axes([0,0,1,1])`, data limits = part extent, `aspect equal`, **NO `bbox_inches='tight'`** (it rescales!). Add a 10 mm verify-bar; user prints at **100% (no fit-to-page)**, overlays the real part, reports per-axis residuals (screen overlay gives **per-axis**, not uniform, scale error — correct each axis independently; handedness/flip is the #1 confusion).
+
+## Workflow patterns
+
+- **Parametric, one source.** Knobs as constants at the top; a dimensional variant is a one-line change or a `VARIANTS` list, **not a forked file**.
+- **Emit BOTH variants, never overwrite one file** — `VARIANTS=[("cap_dev",False),("cap_expo",True)]` writes both `.step/.stl`. Overwriting a single `cap.stl` lost a good cap once.
+- Driving Bambu Studio to slice: see memory `bambu-studio-computer-use` (native file dialogs are invisible to screenshots → `open -a BambuStudio file.stl`).
+
+## Common mistakes
+
+| Mistake | Fix |
+|---|---|
+| "It renders solid" as proof | 3D plots have no occlusion — section + a number |
+| Hardcoding a venv path | Probe; the path rotates (cap-model/venv was deleted) |
+| `shape.export_stl(...)` | Exports are free functions: `export_stl(shape, path)` |
+| CW-wound `Polygon` cut silently misses | List points CCW; assert volume drop per cut |
+| `offset()` on a `scale()`d sphere crashes | Loft stacked ellipse sections for domes |
+| Blanket-mirroring all features | Mirror only moved-edge-referenced ones |
+| Flat print-bed face flagged as overhang | Exclude `centroid_z < ~0.6 mm` from the metric |
+| Trusting a photo for connector heights | Photo gives X/Y only; heights from part-type lookup → SAFE variant |
+
+## Related memory (detail-of-record + worked examples)
+`agentic-3d-modeling` (full playbook), `robot-power-box-project`, `connector-cap-project`, `bambu-studio-computer-use`. Showcase repo: `evnchn-agentic/agentic-cad-fan-stand`.
