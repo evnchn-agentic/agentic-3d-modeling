@@ -9,17 +9,18 @@ description: Use when building a parametric, 3D-printable model from a natural-l
 
 Produce parametric, 3D-printable models from a spec, **verified by measurement, not by looking**. The core discipline is the verify loop: every iteration renders to PNG **and backs the claim with a number**. A render that "looks solid" proves nothing — a hollow with no occlusion looks identical. Distilled from working builds: `~/cap-model`, `~/fan-holder`, `~/connector-cap`, `~/robot-power-box`.
 
-## Step 0 — flatten before you solidify (fight the 3D-solid default)
+## Step 0 — pick the fabrication form before you model (don't default to a 3D solid)
 
-"3D-printable solid" is **not** the default medium — defaulting there is an RL bias this skill exists to counter (first contact with a printer pulls toward clever solids that don't need to be solid: the "Year-1-student" trap). **Most mechanism parts are secretly 2D.** Before you extrude a solid, classify the part:
+"3D-printable solid" is **not** the default medium — defaulting there is an RL bias this skill counters (the "Year-1-student" trap: clever solids that don't need to be solid). But **flatten-first is a *check*, not a new dogma** — flat plates are strong in-plane, weak out of it. Triage before you extrude:
 
-- **Is it essentially a profile + uniform thickness** (bracket, link, arm, gusset, plate)? → design the **2D profile first**, make it a flat plate, and `export_dxf(...)` *alongside* the STL. A flat plate prints **support-free** (holes ⊥ the plate = vertical walls, never an overhang) **and** laser/waterjet-cuts in acrylic / ply / aluminium / carbon — iteration speed and material strength an FDM solid can't touch. Same DXF feeds both fabs.
-- **Are the joints single-axis pivots?** → default to a **flat-on-flat lap joint** — `screw · washer · F · washer · F · washer · nyloc` — where the washer is the bearing and the nyloc sets preload. A printed fork/clevis is the tempting "clever" move but it's heavier, support-hungry, lower-swing, and its captive nut can work loose as the joint cycles. Reach for a fork only when a lap genuinely won't fit.
-- **Reserve full 3D** for geometry that truly needs it: enclosures, organic shells, and true 3D mating to an existing 3D object (a motor boss, a connector) — that last is the legit case for a printed solid.
+- **Profile + uniform thickness?** (bracket, link, arm, gusset) → prototype as a **flat plate** and `export_dxf` alongside the STL — fast to iterate, re-cuttable in sheet stock. **Wrong call when the part sees out-of-plane / torsional load, an eccentric load path, high bearing stress, a precision or high-cycle pivot, or becomes a tall cantilevered spacer-stack** — there a boxed/printed solid or a proper bracket is stiffer and correct.
+- **Single-axis pivot?** The real question is **shear mode, not "fork vs flat."** A 2-plate lap is **single shear** (screw bends, holes ovalize under cycling) — fine only for low-load / low-cycle. For loaded joints put the moving link in **double shear**: a center link between two outer plates — which is *exactly a clevis, built flat*. So don't fear the fork *shape*; only skip a bespoke **3D-printed** fork when flat plates give the same double shear cheaper.
+- **Bearing + clamp, done right:** a stamped washer is a sacrificial slip surface, **not a bearing**. For cyclic motion use a **shoulder screw + bushing / sleeve / thrust washer**, and let a **spacer or shoulder set the clamp length so pivot friction doesn't depend on nut torque** (the nyloc *retains the stack*, it doesn't set the swing).
+- **Reserve full 3D** for what needs it: enclosures, organic shells, true 3D mating to an existing object (a motor boss, a connector).
 
-**Smell test:** if the only word for your part's shape is *"special"/"custom"/"hard to describe,"* you've probably over-solidified. Flat-plate parts are *nameable* — plate, bar, bracket, link. Undescribable = a flag to step back to a profile.
+**Smell test:** "special / hard-to-describe" shape ≈ over-solidified; *nameable* (plate, bar, bracket, link) is usually enough — but **nameable ≠ adequate**, re-check the load cases above.
 
-`build123d` exports DXF too: `ExportDXF(unit=Unit.MM); e.add_shape(sketch.sketch); e.write(path)` — emit it for any plate so the part is laser-ready, not 3D-print-locked.
+**DXF reality:** `ExportDXF(unit=Unit.MM); e.add_shape(sketch.sketch); e.write(path)` emits the profile, but the **same DXF is not drop-in across fabs** — laser kerf/HAZ, waterjet taper, router bit-radius/dogbones, acrylic crazing at holes, ply grain, aluminium burrs each need their own allowance. **Don't laser carbon fibre** (toxic fumes, conductive dust, wrecked optics) — CF is routed or waterjet. Printed vertical through-holes dodge the *horizontal*-hole overhang but still print undersized/faceted → **ream pivot holes**; and counterbores / countersinks / hex-pockets are still overhangs.
 
 ## Toolchain — reuse a venv, don't rebuild (and don't hardcode the path)
 
@@ -92,7 +93,7 @@ Per face: if it faces **down** (`normal_z < 0`) AND is above the bed, surface in
 
 | Mistake | Fix |
 |---|---|
-| Reaching for a 3D-printed solid/fork when a flat plate + bolt does it | Flatten-first (Step 0); F↔F lap joint; `export_dxf` for laser/waterjet |
+| Defaulting to a 3D solid without checking if it's a plate problem | Step 0 triage; flat plate for in-plane loads, **double-shear + bushing** for loaded pivots (not a single-shear washer-lap), `export_dxf` for sheet |
 | "It renders solid" as proof | 3D plots have no occlusion — section + a number |
 | Hardcoding a venv path | Probe; the path rotates (cap-model/venv was deleted) |
 | `shape.export_stl(...)` | Exports are free functions: `export_stl(shape, path)` |
