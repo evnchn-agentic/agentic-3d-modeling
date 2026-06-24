@@ -22,6 +22,15 @@ Produce parametric, 3D-printable models from a spec, **verified by measurement, 
 
 **DXF reality:** `ExportDXF(unit=Unit.MM); e.add_shape(sketch.sketch); e.write(path)` emits the profile, but the **same DXF is not drop-in across fabs** — laser kerf/HAZ, waterjet taper, router bit-radius/dogbones, acrylic crazing at holes, ply grain, aluminium burrs each need their own allowance. **Don't laser carbon fibre** (toxic fumes, conductive dust, wrecked optics) — CF is routed or waterjet. Printed vertical through-holes dodge the *horizontal*-hole overhang but still print undersized/faceted → **ream pivot holes**; and counterbores / countersinks / hex-pockets are still overhangs.
 
+## Lived-experience reflexes (don't draft in a vacuum)
+
+Failures an agent ships that a human in a workshop wouldn't — embodied knowledge that's in training but not reflexive. These apply when the model **claims an assembly, a load path, motion, or fabrication-readiness** — *not* to an isolated part you're deliberately drawing to a spec (a bracket to a bolt pattern, a spacer, a cover are fine in isolation, as long as the interfaces / datums / loads are stated).
+
+- **Nothing floats in a claimed assembly.** If a part drives or carries load, name what fixtures it and where the reaction force goes — don't render it secured to nothing. The environment is often free fixturing + a free datum (a bench, a clamp, a table edge/underside) — consider it, but check it's actually stiff/flat/safe enough; it's an example, not a law.
+- **Static placement ≠ motion validation.** Putting parts in position is not testing a mechanism. If the design depends on motion, define the moving DOF and **sweep it through its range** (sliders / animation / trace) — a single static pose hides clips, singularities, and binds. (In CAD a "mate" is an assembly *constraint*; many are deliberately static — the point is to *exercise* the DOFs, not that every mate moves.)
+- **Separate the schematic from the part.** A layout/kinematic schematic (beams, blocks) legitimately has meaningless overlaps — don't read printability off it. A *manufacturable* model must pass real checks: interference (`signed_distance` / vertex-in-solid → ideally zero), bed-fit, seating, and overhang/support cost. The checks that can be numbers should be; printability isn't one scalar, and support-free is a goal, not a law.
+- **Keep the printer fed — with reviewed, low-risk jobs.** If *fabrication* is the bottleneck and a candidate has passed its fit checks and is safe to run unattended, queue the smallest useful plate before downtime rather than leaving the bed idle. Not every model qualifies — don't speculatively print un-reviewed or stale revisions (that's a shoebox of obsolete plastic + overnight-failure risk, not progress). Machine utilisation ≠ engineering progress.
+
 ## Toolchain — reuse a venv, don't rebuild (and don't hardcode the path)
 
 build123d 0.10 (Python + OpenCascade via `cadquery-ocp`) gives real fillets, true shell, and STEP (editable B-rep) **and** STL (mesh) from one source; plus `trimesh` (section + proximity), `matplotlib` (Agg, headless), numpy.
