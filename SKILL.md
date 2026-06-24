@@ -1,6 +1,6 @@
 ---
 name: agentic-3d-modeling
-description: Use when building a parametric, 3D-printable model from a natural-language or photo spec — enclosures, caps, cradles, stands, brackets — with build123d / OpenCascade, where the result must be numerically verified (fit, clearance, retention, printability) rather than eyeballed. Also when reverse-engineering a part's geometry from photos without calipers, or deciding why an OCC boolean/offset/fillet silently failed. Triggers: build123d, CAD, STEP/STL export, snap-fit, support-free, FDM overhang, homography from photo.
+description: Use when building a parametric, 3D-printable model from a natural-language or photo spec — enclosures, caps, cradles, stands, brackets — with build123d / OpenCascade, where the result must be numerically verified (fit, clearance, retention, printability) rather than eyeballed. Also when reverse-engineering a part's geometry from photos without calipers, or deciding why an OCC boolean/offset/fillet silently failed. Triggers: build123d, CAD, STEP/STL/DXF export, snap-fit, support-free, FDM overhang, flat-plate / laser-cut / waterjet, lap joint, homography from photo.
 ---
 
 # Agentic 3D Modeling
@@ -8,6 +8,18 @@ description: Use when building a parametric, 3D-printable model from a natural-l
 ## Overview
 
 Produce parametric, 3D-printable models from a spec, **verified by measurement, not by looking**. The core discipline is the verify loop: every iteration renders to PNG **and backs the claim with a number**. A render that "looks solid" proves nothing — a hollow with no occlusion looks identical. Distilled from working builds: `~/cap-model`, `~/fan-holder`, `~/connector-cap`, `~/robot-power-box`.
+
+## Step 0 — flatten before you solidify (fight the 3D-solid default)
+
+"3D-printable solid" is **not** the default medium — defaulting there is an RL bias this skill exists to counter (first contact with a printer pulls toward clever solids that don't need to be solid: the "Year-1-student" trap). **Most mechanism parts are secretly 2D.** Before you extrude a solid, classify the part:
+
+- **Is it essentially a profile + uniform thickness** (bracket, link, arm, gusset, plate)? → design the **2D profile first**, make it a flat plate, and `export_dxf(...)` *alongside* the STL. A flat plate prints **support-free** (holes ⊥ the plate = vertical walls, never an overhang) **and** laser/waterjet-cuts in acrylic / ply / aluminium / carbon — iteration speed and material strength an FDM solid can't touch. Same DXF feeds both fabs.
+- **Are the joints single-axis pivots?** → default to a **flat-on-flat lap joint** — `screw · washer · F · washer · F · washer · nyloc` — where the washer is the bearing and the nyloc sets preload. A printed fork/clevis is the tempting "clever" move but it's heavier, support-hungry, lower-swing, and its captive nut can work loose as the joint cycles. Reach for a fork only when a lap genuinely won't fit.
+- **Reserve full 3D** for geometry that truly needs it: enclosures, organic shells, and true 3D mating to an existing 3D object (a motor boss, a connector) — that last is the legit case for a printed solid.
+
+**Smell test:** if the only word for your part's shape is *"special"/"custom"/"hard to describe,"* you've probably over-solidified. Flat-plate parts are *nameable* — plate, bar, bracket, link. Undescribable = a flag to step back to a profile.
+
+`build123d` exports DXF too: `ExportDXF(unit=Unit.MM); e.add_shape(sketch.sketch); e.write(path)` — emit it for any plate so the part is laser-ready, not 3D-print-locked.
 
 ## Toolchain — reuse a venv, don't rebuild (and don't hardcode the path)
 
@@ -80,6 +92,7 @@ Per face: if it faces **down** (`normal_z < 0`) AND is above the bed, surface in
 
 | Mistake | Fix |
 |---|---|
+| Reaching for a 3D-printed solid/fork when a flat plate + bolt does it | Flatten-first (Step 0); F↔F lap joint; `export_dxf` for laser/waterjet |
 | "It renders solid" as proof | 3D plots have no occlusion — section + a number |
 | Hardcoding a venv path | Probe; the path rotates (cap-model/venv was deleted) |
 | `shape.export_stl(...)` | Exports are free functions: `export_stl(shape, path)` |
