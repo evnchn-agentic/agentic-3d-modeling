@@ -7,7 +7,7 @@ description: Use when building a parametric, 3D-printable model from a natural-l
 
 ## Overview
 
-Produce parametric, 3D-printable models from a spec, **verified by measurement, not by looking**. The core discipline is the verify loop: every iteration renders to PNG **and backs the claim with a number**. A render that "looks solid" proves nothing — a hollow with no occlusion looks identical. Distilled from working builds: `~/cap-model`, `~/fan-holder`, `~/connector-cap`, `~/robot-power-box`.
+Produce parametric, 3D-printable models from a spec, **verified by measurement, not by looking**. The core discipline is the verify loop: every iteration renders to PNG **and backs the claim with a number**. A render that "looks solid" proves nothing — a hollow with no occlusion looks identical. Distilled from a series of real builds — caps, covers, cradles, enclosures, and stands (worked examples linked below).
 
 ## Step 0 — pick the fabrication form before you model (don't default to a 3D solid)
 
@@ -95,7 +95,7 @@ Per face: if it faces **down** (`normal_z < 0`) AND is above the bed, surface in
 ## Workflow patterns
 
 - **Parametric, one source.** Knobs as constants at the top; a dimensional variant is a one-line change or a `VARIANTS` list, **not a forked file**.
-- **Emit BOTH variants, never overwrite one file** — `VARIANTS=[("cap_dev",False),("cap_expo",True)]` writes both `.step/.stl`. Overwriting a single `cap.stl` lost a good cap once.
+- **Emit BOTH variants, never overwrite one file** — `VARIANTS=[("cap_dev",False),("cap_sleek",True)]` writes both `.step/.stl`. Overwriting a single `cap.stl` lost a good cap once.
 - Driving Bambu Studio to slice: see memory `bambu-studio-computer-use` (native file dialogs are invisible to screenshots → `open -a BambuStudio file.stl`).
 
 ## Common mistakes
@@ -112,5 +112,6 @@ Per face: if it faces **down** (`normal_z < 0`) AND is above the bed, surface in
 | Flat print-bed face flagged as overhang | Exclude `centroid_z < ~0.6 mm` from the metric |
 | Trusting a photo for connector heights | Photo gives X/Y only; heights from part-type lookup → SAFE variant |
 
-## Related memory (detail-of-record + worked examples)
-`agentic-3d-modeling` (full playbook), `robot-power-box-project`, `connector-cap-project`, `bambu-studio-computer-use`. Showcase repo: `evnchn-agentic/agentic-cad-fan-stand`.
+## Worked examples
+
+Models built end-to-end with this discipline: [coin-stand](https://github.com/evnchn-agentic/coin-stand) (snap-off-support coin clips), [connector-cap](https://github.com/evnchn-agentic/connector-cap) (photo-reverse-engineered, no CAD), [gimbal-base-cover](https://github.com/evnchn-agentic/gimbal-base-cover) (support-free clamshell), [power-board-enclosure](https://github.com/evnchn-agentic/power-board-enclosure) (homography recon before the board arrived).
