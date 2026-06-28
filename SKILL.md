@@ -44,6 +44,10 @@ for v in ~/oak-d-iot-75-cradle/venv ~/*/venv; do
 
 **Exports are FREE FUNCTIONS, not methods:** `export_stl(shape, path, tolerance=.01, angular_tolerance=.1)`, `export_step(shape, path)`. (`shape.export_stl` → AttributeError.) **Units strictly mm**; resolve mixed cm/mm in the spec up front.
 
+## Reach the empirical loop fast — the interpreter is your spatial scratchpad
+
+You have no spatial workspace; holding the finished part in your head as prose is slow **and** error-prone — in-head reach/tolerance derivation is exactly where a dimension gets silently mis-computed (it's how the self-confirming bug below is born). Don't pre-simulate the whole part before writing code. Get the smallest runnable script — one solid, one cut, one `print(solid.bounding_box())` — executing in the first minute, then let measurement, not mental imagery, carry the geometry forward. OCC *can* fail silently (empty booleans, no-op offsets, swallowed fillets); only *running* surfaces it, so a minute of `python build.py` beats ten of in-head deliberation. Leave the printed numbers and asserts in the script — they are the audit trail that makes a long build transparent to the next reader.
+
 ## The verify loop (the core — render → section → MEASURE)
 
 Each iteration: render PNG, `Read` it, **and** attach a number.
@@ -56,6 +60,7 @@ Each iteration: render PNG, `Read` it, **and** attach a number.
   - *retention:* the cradle math below.
   - *printability:* the overhang math below.
 - **Assert the volume drop after every boolean cut** — the single highest-value check (catches wrong-direction extrudes, missed booleans).
+- **A check fed the value it's testing is not a test (self-confirming verification).** Probe the *as-built* solid, never the nominal parameter or an unconfirmed assumption you fed in: `bb = solid.bounding_box(); assert abs(bb.max.X - R_OUT) < tol` (`tol` ~1e-6 on a B-rep; looser on a mesh), read contact/reach off the mesh extent or `trimesh.section`, not off the constant. Burned once — a rounded nose `Circle(FW/2)` *centred* at the tip radius put real material `FW/2` beyond it; the verify checked the tip radius and certified a part whose true reach ran 8 mm into the keep-out it was meant to clear. Same trap for guessed interfaces (a bolt PCD, an across-flats): state the assumption to the operator up front — a part that "verifies" against its own guess proves nothing.
 - Render gravity-aligned views (y=0 side cut + ⟂-axis cross-section, gravity up), not raw point clouds.
 - After any parameter change, **re-grep artifacts** for hardcoded old values (plot titles, comments) — a stale caption on correct geometry is a misleading deliverable.
 
@@ -104,6 +109,7 @@ Per face: if it faces **down** (`normal_z < 0`) AND is above the bed, surface in
 |---|---|
 | Defaulting to a 3D solid without checking if it's a plate problem | Step 0 triage; flat plate for in-plane loads, **double-shear + bushing** for loaded pivots (not a single-shear washer-lap), `export_dxf` for sheet |
 | "It renders solid" as proof | 3D plots have no occlusion — section + a number |
+| A metric computed from the input parameter / a guessed dimension | Self-confirming, not falsifying — probe the as-built solid (`assert bounding_box().max ≈ expected`); state guessed interfaces to the operator |
 | Hardcoding a venv path | Probe; the path rotates (cap-model/venv was deleted) |
 | `shape.export_stl(...)` | Exports are free functions: `export_stl(shape, path)` |
 | CW-wound `Polygon` cut silently misses | List points CCW; assert volume drop per cut |
