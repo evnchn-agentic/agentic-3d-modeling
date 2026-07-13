@@ -103,6 +103,18 @@ A trough retains a cylinder only if **opening width < cylinder diameter**:
 
 Per face: if it faces **down** (`normal_z < 0`) AND is above the bed, surface incline from horizontal `= arccos(|normal_z|)`; **needs support if < ~45°**. **CRITICAL: exclude bed-contact faces (`centroid_z < ~0.6 mm`)** or the flat bottom false-flags as a 0°-overhang ceiling (it's the first layer). Design tricks: print top-plate-down for caps; a **0.2 mm membrane** closing a counterbore floor lets the printer *bridge* a flat instead of an overhang ledge (drill through after).
 
+## Warp-awareness (FDM — the big flat base that curls off the plate)
+
+Warping is a printability failure the **CAD model** controls, the same way support-free is — a slicer brim only fights what the geometry invites. A **large contiguous flat bottom** accumulates differential-shrinkage stress that bows the first layers upward (**sharp corners lift first**, but a rounded slab still bows); on a big part it can lift hard enough to **peel the whole print off a magnetic plate mid-job** (a taco'd base, not a cosmetic blemish). Design it out — biggest lever first:
+
+- **Kill contiguous flat-bottom area — skeletonize a large base.** Warp force scales with the first-layer *contiguous* area, so a solid slab is the worst case. Replace it with a **perimeter rail + cross-ribs + solid pads only under the load points** (walls, bosses, mounts) and **open windows between**. The original part you're copying often already has these cut-outs — keep them, don't "helpfully" fill them in. Cuts warp, plastic, and print time at once.
+- **Round the footprint corners, chamfer the bottom edge.** Corners are the stress concentrators and lift first; a fillet (R ≥ ~8 mm) on the outline plus a small bottom-edge chamfer removes most corner-curl.
+- **Design-in mouse-ears / brim tabs** at the corners (thin snap-off discs) instead of leaning on the slicer's brim — the anchor is then part of the model and survives a re-slice / a different operator.
+- **Split an oversized flat part.** Two smaller plates warp far less than one big one — corner-lift grows fast with span (a free differential-shrinkage strip bows as span², an upper bound; bed adhesion softens the real curve but the direction holds), so halving the span helps super-linearly. Bolt or dowel them. A **~200 mm solid footprint is already a warp risk** worth splitting or skeletonising.
+- **Material is a multiplier, not the cause.** ABS/PETG/CF/PA warp several× more than PLA; a big flat base in a warpy filament is a red flag — surface it to the operator and lean harder on the levers above.
+
+**Falsifiable check (fold into the verify loop) — gate on contiguity FIRST; corners aggravate, they aren't required.** From the *as-built* mesh (never the nominal params): take bed-contact faces (`fc[:,2] < ~0.6` **and** `fn[:,2] < -0.5`), sum their `contact_area`, and take the footprint bbox of those triangles. Flag when the footprint is **large** (max side > ~150 mm) **and contiguous** (`contact_area / (fx*fy) > ~0.6` — a solid slab ≈ 1.0; a skeletonised rail-and-ribs base drops well below). **Don't require sharp corners** — rounding fixes corner-curl, not the global bow, so a large *rounded* slab must still flag (battle-tested: an R8-filleted 235 mm slab clears any corner test yet is still `contiguity ≈ 1.0` → warps). Score corner-sharpness only as a *severity* aggravator, via a **morphological opening** of the footprint outline (`poly.buffer(-R).buffer(R)`, R≈8; the removed area is the sharp-corner material) — apply it *after* the contiguity gate, since a raw opening also eats thin ribs. Recommend skeletonise + fillet *before the part ever prints*; don't wait for the operator's photo of a base that peeled the plate. *(The ~150 mm / R8 / 0.6 numbers are one-incident + first-principles — they discriminate a slab from its fixes in a synthetic sweep, but pin them against real prints before trusting the exact values.)*
+
 ## Reverse-engineer geometry from photos (no calipers)
 
 - **Credit card = free scale ruler.** ISO/IEC 7810 ID-1 = 85.60×53.98 mm; threshold its color + `scipy.ndimage.label` for px→mm (check X-vs-Y anisotropy = perspective).
@@ -131,6 +143,7 @@ Per face: if it faces **down** (`normal_z < 0`) AND is above the bed, surface in
 | Blanket-mirroring all features | Mirror only moved-edge-referenced ones |
 | Flat print-bed face flagged as overhang | Exclude `centroid_z < ~0.6 mm` from the metric |
 | Trusting a photo for connector heights | Photo gives X/Y only; heights from part-type lookup → SAFE variant |
+| Shipping a large **solid flat base** (big *contiguous* first-layer footprint; sharp corners worsen it but aren't required) → warps/peels off the plate | Gate on contiguity first (`contact_area/bbox > ~0.6` on a >~150 mm footprint) — skeletonise (perimeter rail + ribs + pads, open windows), fillet corners + chamfer bottom edge, design-in mouse-ears; split if huge; warpy material = red flag (see Warp-awareness) |
 
 ## Worked examples
 
