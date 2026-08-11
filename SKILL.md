@@ -34,16 +34,31 @@ Failures an agent ships that a human in a workshop wouldn't — embodied knowled
 - **Track each part's axial plane; close the stack-up against real contact faces.** In a layered/offset-plane mechanism, hold *which plane every part lives on*. When a part mates to one on a **different** plane, *something* must span the axial gap between their contact faces — a **standoff, step, shoulder, washer, or bearing stack** — so **assert the stack-up dimension** (accounting for part thicknesses), not just the projected mate, and **match the plane of parts already physically built** so a new part joins the existing stack instead of floating a plane off it. A real datum-placed "mate" surfaces this gap for free; a stick-figure layout hides it.
 - **Record each interface's source of truth before inventing one.** Before modeling anything that attaches to existing hardware, pin each interface to a source — **a measured existing part, a registry part ID, a drawing, or an explicit stated assumption** — and **search existing parts / the registry** for one that already exists, rather than building a substitute ("a tower") for a part that's on the bench or attaching to "nothing". Constraints the operator already stated — the fastener inventory, which side a cable exits, the plane a printed part sits on — are **inputs to hold**, not facts to silently re-derive, drop, or contradict (drawing 6 loose holes after "there are 4 nut-pairs" is the tell).
 
-## Toolchain — reuse a venv, don't rebuild (and don't hardcode the path)
+## Toolchain — one shared CAD venv, owned by nobody's project
 
 build123d 0.10 (Python + OpenCascade via `cadquery-ocp`) gives real fillets, true shell, and STEP (editable B-rep) **and** STL (mesh) from one source; plus `trimesh` (section + proximity), `matplotlib` (Agg, headless), numpy.
 
-**Probe for an existing venv** — the path rotates (a disk-cleanup sweep deleted `~/cap-model/venv` once; don't trust a memorized location):
+**The interpreter is `~/.venvs/cad/bin/python`.** It is a domain toolbox, not a project — no CAD project owns it, so no CAD project's deletion or cleanup can take it away. Create it if absent (idempotent, ~2 min, ~900 MB):
 ```bash
-for v in ~/oak-d-iot-75-cradle/venv ~/*/venv; do
-  "$v/bin/python" -c "import build123d,trimesh" 2>/dev/null && echo "USE $v" && break; done
+# Guard on IMPORTABILITY, not on the binary existing — an interrupted create leaves
+# bin/python behind, and a binary-only test would skip the install and "succeed" empty.
+~/.venvs/cad/bin/python -c "import build123d,trimesh,numpy,shapely,matplotlib,rtree,scipy,networkx,lxml,fcl,OCP" 2>/dev/null || {
+  uv venv --python 3.12 ~/.venvs/cad
+  VIRTUAL_ENV=~/.venvs/cad uv pip install \
+    'build123d==0.10.0' 'trimesh==4.12.2' 'numpy==2.4.6' 'shapely==2.1.2' \
+    'matplotlib==3.10.9' 'rtree==1.4.1' 'networkx==3.6.1' 'scipy==1.17.1' \
+    'manifold3d==3.5.2' 'ezdxf==1.4.4' 'cadquery-ocp==7.8.1.1.post1' \
+    'embreex==4.4.0' 'python-fcl==0.7.0.11' 'lxml==6.1.1'
+}
+~/.venvs/cad/bin/python -c "import build123d,trimesh,fcl,OCP; print('cad venv ok')"
 ```
-(The seed candidate above is illustrative — the `~/*/venv` glob is what actually finds it; don't treat any single path as fixed.) If none found: build on a **Python 3.12** interpreter (`cadquery-ocp` has **no wheel for bleeding-edge CPython** — no cp314). On this Mac that's `/opt/homebrew/bin/python3.12`; on the Linux homelab nodes resolve `python3.12`/`which python3.12` instead (the homebrew path is Apple-Silicon-only). Never `--break-system-packages`. Helpers pulled on ImportError: `rtree` (proximity), `networkx` (mesh section).
+`uv venv` on an existing path re-creates it, so the repair branch is safe to re-run. Note the import names differ from the package names: `python-fcl`→`fcl`, `cadquery-ocp`→`OCP`.
+**The pins are load-bearing — do not drop them for "latest".** Unpinned, this resolves today to build123d 0.11.1 / trimesh 5.0.0 / `cadquery-ocp-novtk` — two major bumps away from the stack every existing CAD script in the estate was written and verified against. Upgrading is a deliberate act: bump the pins, re-run the existing `build*.py` scripts, and diff the exported STEP/STL against the previous output (STEP embeds a `FILE_NAME` timestamp — strip that line before diffing) before you trust it.
+**Do NOT borrow another project's venv, and do NOT glob `~/*/venv` for one** — that was the old advice here and it was wrong twice over: it made every CAD project depend on an unrelated project staying alive (the estate's whole CAD toolchain hung off `~/oak-d-iot-75-cradle/venv`, which is a *finished IoT cradle project*), and the glob happily lands on a **brew-python** venv that a `brew upgrade python@3.12` dangles. `uv venv` pins uv-managed CPython, which takes that specific failure off the table — not every failure: the venv still symlinks into `~/.local/share/uv/python/cpython-3.12.11-*/`, so a `uv python` prune, or restoring `~/.venvs/cad` onto a node without that interpreter, still breaks it. **The repair is always the create block above, never a hunt for a substitute venv.** Same rule for any *other* domain toolbox (`~/.venvs/web` for playwright/selenium/PIL) — reach for `~/.venvs/<domain>`, never a sibling project.
+
+**Why 3.12:** `cadquery-ocp` has **no wheel for bleeding-edge CPython** (no cp314), so pin `--python 3.12` rather than letting uv pick the newest. Never `--break-system-packages`. On a Linux homelab node the same recipe works unchanged (uv resolves its own 3.12; don't reach for `/opt/homebrew`, which is Apple-Silicon-only).
+
+**A project still owns its INPUTS.** The venv is shared; the STLs/STEPs/frames a build script loads are not. `trimesh.load('stl/front1.stl')` reading from a session scratchpad is the same bug one layer down — a script that can't re-run from a clean checkout of its own directory is already broken. Commit the inputs next to the script, or generate them in it.
 
 **Exports are FREE FUNCTIONS, not methods:** `export_stl(shape, path, tolerance=.01, angular_tolerance=.1)`, `export_step(shape, path)`. (`shape.export_stl` → AttributeError.) **Units strictly mm**; resolve mixed cm/mm in the spec up front.
 
@@ -140,7 +155,7 @@ Warping is a printability failure the **CAD model** controls, the same way suppo
 | "It renders solid" as proof | 3D plots have no occlusion — section + a number |
 | A metric computed from the input parameter / a guessed dimension | Self-confirming, not falsifying — probe the as-built solid (`assert bounding_box().max ≈ expected`); state guessed interfaces to the operator |
 | Verifying a feature's geometry but not whether it can EXIST in its material (self-tap at the tap-drill Ø, ~1 mm press-fit, PLA snap arm, load across layer lines) | Material-realizability pass — pilot ≈ pitch-Ø not tap-drill; press-fit ≤0.2 mm; strain under the material's allowable; don't load inter-layer (Z) in tension |
-| Hardcoding a venv path | Probe; the path rotates (cap-model/venv was deleted) |
+| Borrowing another project's venv, or globbing `~/*/venv` for one | Use `~/.venvs/cad/bin/python` (create per Toolchain §). A project-owned venv rotates and dies with its project — cap-model/venv was deleted by a cleanup sweep, and the whole CAD estate once hung off a finished IoT project's brew-python venv |
 | `shape.export_stl(...)` | Exports are free functions: `export_stl(shape, path)` |
 | CW-wound `Polygon` cut silently misses | List points CCW; assert volume drop per cut |
 | `offset()` on a `scale()`d sphere crashes | Loft stacked ellipse sections for domes |
@@ -153,4 +168,11 @@ Warping is a printability failure the **CAD model** controls, the same way suppo
 
 ## Worked examples
 
-Models built end-to-end with this discipline: [coin-stand](https://github.com/evnchn-agentic/coin-stand) (snap-off-support coin clips), [connector-cap](https://github.com/evnchn-agentic/connector-cap) (photo-reverse-engineered, no CAD), [gimbal-base-cover](https://github.com/evnchn-agentic/gimbal-base-cover) (support-free clamshell), [power-board-enclosure](https://github.com/evnchn-agentic/power-board-enclosure) (homography recon before the board arrived).
+Core builds, one per technique this skill leans on:
+
+- **[agentic-cad-fan-stand](https://github.com/evnchn-agentic/agentic-cad-fan-stand)** — cradle retention and rest-angle anchoring, every constraint checked as a number
+- **[gimbal-base-cover](https://github.com/evnchn-agentic/gimbal-base-cover)** — support-free printability: teardrop holes, 45° buttressed bosses
+- **[connector-cap](https://github.com/evnchn-agentic/connector-cap)** — reverse-engineering a part from photos when the unit ships no CAD
+- **[f95d-21700-charger](https://github.com/evnchn-agentic/f95d-21700-charger)** — the verify loop turned on *someone else's* file: a fan housing cut down to a charger, with the electronics bay proven identical to the donor
+
+Other examples in the [evnchn-agentic](https://github.com/evnchn-agentic) org if you need a different angle.
